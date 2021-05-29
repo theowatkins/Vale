@@ -11,14 +11,6 @@ public class Catalyst {
     private static HashMap<String, FunctionMaps> functionInfo;
     private static HashMap<String, JSONObject> functionObjects;
     private static HashMap<String, Struct> structInfo;
- 
-    private static class Struct {
-        public Ref[] Members;
-
-        public Struct(Ref[] members) {
-            this.Members = members;
-        }
-    }
 
     private static void printStructInfo(HashMap<String, Struct> structs) {
         for (String name : structs.keySet()) {
@@ -109,10 +101,14 @@ public class Catalyst {
 
     private static Optional<String> getReferendStructName(JSONObject obj) {
         JSONObject referend = getReferend(obj);
+        return getStructName(referend);
+    }
+
+    private static Optional<String> getStructName(JSONObject ref) {
         Optional<String> structName = Optional.empty();
 
-        if (getType(referend).equals("StructId")) {
-            structName = Optional.of((String)referend.get("name"));
+        if (getType(ref).equals("StructId")) {
+            structName = Optional.of((String)ref.get("name"));
         }
 
         return structName;
@@ -163,7 +159,7 @@ public class Catalyst {
             if (getType(referend).equals("StructId")) {
                 structName = Optional.of((String)referend.get("name"));
             }
-            OptionalLong objId = createObject(structName, fmaps);
+            OptionalLong objId = createNotLiveObject(structName, fmaps);
 
             // add unnamed variable with negative identifier for accessing newly created object
             fmaps.addVariable(argId, new Ref("", "Final", ownership, structName), objId);
@@ -182,7 +178,7 @@ public class Catalyst {
         // System.out.println("]");
     }
 
-    private static OptionalLong createObject(Optional<String> structName, FunctionMaps fmaps) {
+    private static OptionalLong createNotLiveObject(Optional<String> structName, FunctionMaps fmaps) {
         if (!structName.isPresent()) {
             return OptionalLong.empty();
         }
@@ -191,10 +187,11 @@ public class Catalyst {
         StructMember[] members = new StructMember[memberInfo.length];
 
         for (int i=0; i<memberInfo.length; i++) {
-            members[i] = new StructMember(createObject(memberInfo[i].StructName, fmaps), memberInfo[i].Ownership);
+            members[i] = new StructMember(createNotLiveObject(memberInfo[i].StructName, fmaps), 
+                memberInfo[i].Ownership, memberInfo[i].Variability);
         }
 
-        return OptionalLong.of(fmaps.addObject(members, false));
+        return OptionalLong.of(fmaps.addObject(members, false, true));
     }
 
     private static OptionalLong parseBlock(JSONObject block, FunctionMaps fmaps) {
@@ -235,7 +232,6 @@ public class Catalyst {
             case "DestroyKnownSizeArrayIntoLocals":
             case "DestroyKnownSizeArrayIntoFunction":
             case "DestroyUnknownSizeArray":
-                // TODO parse into source
                 return OptionalLong.empty();
             case "Stackify":
                 return parseStackify(e, fmaps);
@@ -245,7 +241,6 @@ public class Catalyst {
             case "InterfaceToInterfaceUpcast":
                 return parseSource(e, fmaps);
             case "LocalStore":
-                // TODO
                 return OptionalLong.empty();
             case "LocalLoad":
                 return parseLocalLoad(e, fmaps);
@@ -257,10 +252,10 @@ public class Catalyst {
             case "UnknownSizeArrayStore":
             case "KnownSizeArrayLoad":
             case "UnknownSizeArrayLoad":
-                return OptionalLong.empty();
-            case "NewStruct":
             case "NewArrayFromValues":
             case "ConstructUnknownSizeArray":
+                return OptionalLong.empty();
+            case "NewStruct":
                 return parseConstructor(e, fmaps);
             case "Call":
                 return parseCall(e, fmaps);
@@ -274,17 +269,15 @@ public class Catalyst {
             case "Consecutor":
                 return parseConsecutor(e, fmaps);
             case "Block":
-                // TODO Clear locals introduced in block
                 return parseBlock(e, fmaps);
             case "Return":
                 return parseSource(e, fmaps);
-            case "WeakAlias": // TODO
-            case "LockWeak": // TODO
+            case "WeakAlias":
+            case "LockWeak":
             case "ArrayLength":
             case "CheckRefCount":
                 return OptionalLong.empty();
             case "Discard":
-                // TODO: empty? what about source expr?
                 return parseSource(e, fmaps);
             default:
                 return OptionalLong.empty();
@@ -325,9 +318,10 @@ public class Catalyst {
         StructMember[] members = new StructMember[memberInfo.length];
 
         for (int i=0; i<memberInfo.length; i++) {
-            members[i] = new StructMember(parseExpr((JSONObject)sourceExprs.get(i), fmaps), memberInfo[i].Ownership);
+            members[i] = new StructMember(parseExpr((JSONObject)sourceExprs.get(i), fmaps), 
+                memberInfo[i].Ownership, memberInfo[i].Variability);
         }
-        return OptionalLong.of(fmaps.addObject(members, false));
+        return OptionalLong.of(fmaps.addObject(members, false, false));
     }
 
     private static OptionalLong parseArgument(JSONObject obj, FunctionMaps fmaps) {
@@ -340,35 +334,136 @@ public class Catalyst {
     private static OptionalLong parseCall(JSONObject obj, FunctionMaps fmaps) {
         JSONObject fun = (JSONObject)obj.get("function");
         String fname = (String)fun.get("name");
+        JSONArray params = (JSONArray)fun.get("params");
         JSONArray argExprs = (JSONArray)obj.get("argExprs");
         OptionalLong[] argEvals = new OptionalLong[argExprs.size()];
 
         // Parse function if it has not already been parsed
-        // get info on returned value
         if (!functionInfo.containsKey(fname)) {
             FunctionMaps newFmaps = new FunctionMaps(fname);
             parseFunction(functionObjects.get(fname), newFmaps);
         }
 
+        // Get info on returned object and its members
+        ReturnInfo retInfo = functionInfo.get(fname).Returns;
+        // Get info on parameters
+        // Ref[] memberInfo = getMemberInfo(retInfo.StructName);
+
         // Parse argument expressions
         for (int i=0; i<argEvals.length; i++) {
             argEvals[i] = parseExpr((JSONObject)argExprs.get(i), fmaps);
-        }
+            // - owning ref = not kl
+            // - variable owning ref in constraint ref = not kl
 
-        ReturnInfo retInfo = functionInfo.get(fname).Returns;
-        StructMember[] members = new StructMember[retInfo.MemberArgIdxs.length];
-        Ref[] memberInfo = getMemberInfo(retInfo.StructName);
-
-        for (int j=0; j<members.length; j++) {
-            members[j] = new StructMember(OptionalLong.empty(), memberInfo[j].Ownership);
-
-            if (retInfo.MemberArgIdxs[j].isPresent()) {
-                // If member is an argument
-                members[j].Id = argEvals[j];
+            // search return info to see if argument is part of return value
+            if (argEvals[i].isPresent()) {
+                // if owning ref is passed to function, and it is not part of the return value, 
+                // it can no longer be guaranteed knownlive
+                if (getType((JSONObject)((JSONObject)params.get(i)).get("ownership")).equals("Own") &&
+                        !isReturned(Long.valueOf(i), Long.valueOf(-1), retInfo)) {
+                    fmaps.killObj(argEvals[i]);
+                } else if (getType((JSONObject)((JSONObject)params.get(i)).get("ownership")).equals("Borrow")) {
+                    fmaps.killVaryingMembers(argEvals[i]);
+                }
             }
         }
+    
+        if (retInfo.RetArgIdx.ArgIdx.isPresent()) {
+            assert retInfo.Ownership.equals("Borrow") : "weird: owning ref from arg returned";
+            // returned object is tied to argument
+            OptionalLong argObj = argEvals[(int)retInfo.RetArgIdx.ArgIdx.getAsLong()];
+            OptionalLong retObj = getObjFromPath(argObj, retInfo.RetArgIdx, fmaps);
+            return retObj;
+        } else {
+            // Build members of returned object 
+            if (retInfo.StructName.isPresent() && 
+              structInfo.get(retInfo.StructName.get()).Members.length > retInfo.MemberMap.get(Long.valueOf(-1)).members.length) {
+                // Create dummy member objects for members to point to
+                return createNotLiveObject(retInfo.StructName, fmaps);
+            }
 
-        return OptionalLong.of(fmaps.addObject(members, true));
+            StructMember[] members = buildReturnMembers(Long.valueOf(-1), retInfo.MemberMap, argEvals, fmaps, retInfo.Ownership);
+            if (retInfo.Ownership.equals("Own")) {
+                return OptionalLong.of(fmaps.addObject(members, true, false));
+            } else {
+                return OptionalLong.of(fmaps.addObject(members, false, false));
+            }
+        }
+    }
+
+    private static StructMember[] buildReturnMembers(Long curObj, HashMap<Long, MemberArgMap> mm, 
+                OptionalLong[] argEvals, FunctionMaps fmaps, String ownership) {
+        if (mm.containsKey(curObj)) {
+            MemberArgMap curMap = mm.get(curObj);
+            StructMember[] newMems = new StructMember[curMap.members.length];
+
+            for (int i=0; i<curMap.members.length; i++) {
+                StructMember curMem = curMap.members[i];
+                PathToArg curMemAsArg = curMap.membersAsArgs[i];
+
+                // default is empty id
+                newMems[i] = new StructMember(OptionalLong.empty(), curMem.Ownership, curMem.Variability);
+
+                if (curMem.Id.isPresent()) {
+                    if (curMemAsArg.ArgIdx.isPresent()) {
+                        // if member is from arg, id = evaluation of arg expression (or member it was derived from)
+                        OptionalLong argEval = argEvals[(int)curMemAsArg.ArgIdx.getAsLong()];
+                        newMems[i].Id = getObjFromPath(argEval, curMemAsArg, fmaps);
+                    } else {
+                        StructMember[] memberMems = buildReturnMembers(curMem.Id.getAsLong(), mm, argEvals, fmaps, ownership);
+                        Boolean own;
+                        if (ownership.equals("Own") && curMem.Ownership.equals("Own")) {
+                            // indirectly owned members are knownlive
+                            own = true;
+                        } else {
+                            own = false;
+                        }
+                        // if member is not arg, create object for it to point to
+                        newMems[i].Id = OptionalLong.of(fmaps.addObject(memberMems, own, false));
+                    }
+                }
+            }
+            return newMems;
+        } else {
+            System.out.println("VERY BAD, SHOULDN'T BE HERE");
+            return new StructMember[0];
+        }
+    }
+
+    private static OptionalLong getObjFromPath(OptionalLong argObj, PathToArg p, FunctionMaps fmaps) {
+        OptionalLong cur = argObj;
+        for (Integer idx : p.Path) {
+            cur = fmaps.getMemberObj(cur, Long.valueOf((long)idx));
+            assert cur.isPresent() : "problem getting member object";
+        }
+        return cur;
+    }
+
+    private static Boolean isReturned(Long arg, Long curObj, ReturnInfo retInfo) {
+        HashMap<Long, MemberArgMap> mm = retInfo.MemberMap;
+
+        if (retInfo.RetArgIdx.ArgIdx.isPresent() && 
+          Long.valueOf(retInfo.RetArgIdx.ArgIdx.getAsLong()).equals(arg) && 
+          retInfo.RetArgIdx.Path.isEmpty()) {
+            return true;
+        }
+
+        if (mm.containsKey(curObj)) {
+            MemberArgMap curMap = mm.get(curObj);
+            for (int i=0; i<curMap.members.length; i++) {
+                StructMember curMem = curMap.members[i];
+                PathToArg curMemAsArg = curMap.membersAsArgs[i];
+                if (curMemAsArg.ArgIdx.isPresent() && 
+                  Long.valueOf(curMemAsArg.ArgIdx.getAsLong()).equals(arg) && 
+                  curMemAsArg.Path.isEmpty()) {
+                    return true;
+                } else if (curMem.Id.isPresent() && isReturned(arg, curMem.Id.getAsLong(), retInfo)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return false;
     }
 
     private static OptionalLong parseMemberLoad(JSONObject obj, FunctionMaps fmaps) {
@@ -425,7 +520,6 @@ public class Catalyst {
 
         // Get variable information
         Long varId = getRefId(local);
-        // TODO: perhaps check if optName is of type "None"
         String varName = (String)((JSONObject)obj.get("optName")).get("value");
         String ownership = getOwnership(local);
         String variability = getType((JSONObject)local.get("variability"));
@@ -448,15 +542,33 @@ public class Catalyst {
     }
 
     private static void parseDestroy(JSONObject obj, FunctionMaps fmaps) {
-        //TODO: Deal with members
         JSONArray locals = (JSONArray)obj.get("localIndices");
+        JSONObject structExpr = (JSONObject)obj.get("structExpr");
+        OptionalLong destroyObject = parseExpr(structExpr, fmaps);
+        OptionalLong[] memberIds = fmaps.getMemberIds(destroyObject);
 
+        //change object to NOT known live
+        fmaps.killObj(destroyObject);
+
+        //store members in locals
+        int localCount = 0;
         for (Object loc : locals) {
             JSONObject l = (JSONObject)loc;
             Long refId = getRefId(l);
             String ownership = getOwnership(l);
+            JSONObject id = (JSONObject)l.get("id");
+            String varName = (String)((JSONObject)id.get("optName")).get("value");
+            String variability = getType((JSONObject)l.get("variability"));
+            Optional<String> memberStructName = getReferendStructName(l);
 
-            //addRefToTables(refId, ownership, OptionalLong.empty(), new OptionalLong[0], fmaps);
+            if (memberIds.length > localCount) {
+                fmaps.addVariable(refId, new Ref(varName, variability, ownership, memberStructName), memberIds[localCount]);
+            } else {
+                System.out.println("BAD, different number of locals and members in destroy expr");
+            }
+
+            localCount++;
+
         }
     }
 }

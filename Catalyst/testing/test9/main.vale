@@ -1,0 +1,6 @@
+fn main() {
+  arr = MakeArray(10, {_ * 7});
+  each (&arr) (x){
+    println(x);
+  }
+}

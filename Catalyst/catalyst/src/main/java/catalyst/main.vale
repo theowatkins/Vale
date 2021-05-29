@@ -1,0 +1,18 @@
+struct Engine {
+  fuel int;
+}
+struct Spaceship {
+  leftEngine Engine;
+  rightEngine Engine;
+  activeEngine! &Engine;
+}
+fn getActiveEngine(ship &Spaceship) {
+  ret ship.leftEngine;
+}
+fn main() export {
+  left = Engine(10);
+  right = Engine(20);
+  s = Spaceship(left, right, &left);
+
+  println(s.activeEngine);
+}

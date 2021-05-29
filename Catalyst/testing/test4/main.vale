@@ -1,0 +1,23 @@
+struct Engine {
+  fuel__ut int;
+}
+
+struct Spaceship {
+  engine! Engine;
+  wings int;
+}
+
+// test 4
+// returned object (spaceship) still knownLive
+
+fn switchEngine(s &Spaceship) &Spaceship {
+  e = Engine(20);
+  mut s.engine = e; // not knownLive (yet)
+  ret s;
+}
+
+fn main() export {
+  s = Spaceship(Engine(10), 4);
+  s2 = switchEngine(&s);
+  println(s2.engine.fuel__ut); // 2 knownLives
+}

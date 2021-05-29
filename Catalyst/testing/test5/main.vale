@@ -1,0 +1,46 @@
+struct Engine {
+  fuel__ut int;
+}
+struct Spaceship {
+  engine &Engine;
+  wings int;
+}
+
+// test 5
+// test that fuel__ut is knownlive in while, if, and else expressions
+// just ensuring proper recursion
+
+fn getEngine(s &Spaceship) &Engine {
+  ret s.engine; // not knownLive (yet)
+}
+fn loopCaller() {
+  eng = Engine(10);
+  s = Spaceship(&eng, 4);
+  e = getEngine(&s);
+  num! = 5;
+  num2 = 6;
+
+  if (num == 5) {
+    println(e.fuel__ut); //knownLive
+  } 
+
+  if (num2 == 5) {
+    //do nothing
+  } else if (num2 == 6) {
+    println(e.fuel__ut); //knownLive
+  }
+
+  if (num2 == 5) {
+    //do nothing
+  } else {
+    println(e.fuel__ut); //knownLive
+  }
+
+  while (num == 5) {
+    println(e.fuel__ut); //knownLive
+    mut num = 6;
+  }
+}
+fn main() export {
+  loopCaller();
+}

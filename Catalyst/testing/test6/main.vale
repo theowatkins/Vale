@@ -1,0 +1,33 @@
+struct Engine{
+  fuel__ut str;
+}
+
+struct Spaceship{
+  wingSpan int;
+  engineA &Engine;
+  engineB &Engine;
+}
+
+struct Fleet{
+  ship1 Spaceship;
+  ship2 Spaceship;
+  ship3 Spaceship;
+}
+
+fn duplicateShip3(f &Fleet) Spaceship {
+  newShip = Spaceship(f.ship3.wingSpan, f.ship3.engineA, f.ship3.engineB);
+  ret newShip;
+}
+
+fn main() export {
+  e = Engine("large");
+  e2 = Engine("medium");
+  s1 = Spaceship(300, &e, &e2);
+  s2 = Spaceship(200, &e, &e2);
+  s3 = Spaceship(100, &e2, &e2);
+  f = Fleet(s1, s2, s3);
+
+  dupShip = duplicateShip3(&f);
+
+  println(dupShip.engineA.fuel__ut); 
+}

@@ -37,15 +37,77 @@ public class TestCatalyst {
         return returnList;
     }
 
-    private static void test1to3(String outFile) {
+    private static void fuel_kl(String outFile, int numChecks) {
         JSONParser parser = new JSONParser();
         try {
             JSONObject ast = (JSONObject)parser.parse(new FileReader(outFile));
             ArrayList<JSONObject> memberLoads = recursiveCollect(ast, (node) -> { 
                 return ((String)node.get("__type")).equals("MemberLoad") && ((String)node.get("memberName")).equals("fuel__ut_0"); });
             
-            assert memberLoads.size() == 1 : MISSING_NODES;
-            assert (boolean)memberLoads.get(0).get("structKnownLive") : MISSING_KL;
+            assert memberLoads.size() >= numChecks : MISSING_NODES;
+            int checks = 0;
+            for (int i = 0; i < memberLoads.size(); i++) {
+                if ((boolean)memberLoads.get(i).get("structKnownLive"))
+                    checks += 1;
+            }
+            assert checks == numChecks : MISSING_KL;
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void fuel_not_kl(String outFile, int numChecks) {
+        JSONParser parser = new JSONParser();
+        try {
+            JSONObject ast = (JSONObject)parser.parse(new FileReader(outFile));
+            ArrayList<JSONObject> memberLoads = recursiveCollect(ast, (node) -> { 
+                return ((String)node.get("__type")).equals("MemberLoad") && ((String)node.get("memberName")).equals("fuel__ut_0"); });
+            
+            assert memberLoads.size() >= numChecks : MISSING_NODES;
+            int checks = 0;
+            for (int i = 0; i < memberLoads.size(); i++) {
+                if (!((boolean)memberLoads.get(i).get("structKnownLive")))
+                    checks += 1;
+            }
+            assert checks == numChecks : MISSING_KL;
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void engine_kl(String outFile, int numChecks) {
+        JSONParser parser = new JSONParser();
+        try {
+            JSONObject ast = (JSONObject)parser.parse(new FileReader(outFile));
+            ArrayList<JSONObject> memberLoads = recursiveCollect(ast, (node) -> { 
+                return ((String)node.get("__type")).equals("MemberLoad") && ((String)node.get("memberName")).equals("engine_0"); });
+            
+            assert memberLoads.size() >= numChecks : MISSING_NODES;
+            int checks = 0;
+            for (int i = 0; i < memberLoads.size(); i++) {
+                if ((boolean)memberLoads.get(i).get("structKnownLive"))
+                    checks += 1;
+            }
+            assert checks == numChecks : MISSING_KL;
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void engine_not_kl(String outFile, int numChecks) {
+        JSONParser parser = new JSONParser();
+        try {
+            JSONObject ast = (JSONObject)parser.parse(new FileReader(outFile));
+            ArrayList<JSONObject> memberLoads = recursiveCollect(ast, (node) -> { 
+                return ((String)node.get("__type")).equals("MemberLoad") && ((String)node.get("memberName")).equals("engine_0"); });
+            
+            assert memberLoads.size() >= numChecks : MISSING_NODES;
+            int checks = 0;
+            for (int i = 0; i < memberLoads.size(); i++) {
+                if (!((boolean)memberLoads.get(i).get("structKnownLive")))
+                    checks += 1;
+            }
+            assert checks == numChecks : MISSING_KL;
         } catch(Exception e) {
             e.printStackTrace();
         }
@@ -62,13 +124,42 @@ public class TestCatalyst {
         String[] args3 = {
             "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test3\\out\\build.vast", 
             "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test3\\out\\speedy-build.vast" };
-
+        String[] args4 = {
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test4\\out\\build.vast", 
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test4\\out\\speedy-build.vast" };
+        String[] args5 = {
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test5\\out\\build.vast", 
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test5\\out\\speedy-build.vast" };
+        String[] args6 = {
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test6\\out\\build.vast", 
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test6\\out\\speedy-build.vast" };
+        String[] args7 = {
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test7\\out\\build.vast", 
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test7\\out\\speedy-build.vast" };
+        String[] args8 = {
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test8\\out\\build.vast", 
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test8\\out\\speedy-build.vast" };
+            
         Catalyst.main(args1);
-        test1to3(args1[1]);
+        fuel_kl(args1[1], 1);
         Catalyst.main(args2);
-        test1to3(args2[1]);
+        fuel_kl(args2[1], 1);
         Catalyst.main(args3);
-        test1to3(args3[1]);
+        fuel_kl(args3[1], 1);
+        Catalyst.main(args4);
+        engine_kl(args4[1], 1);
+        fuel_not_kl(args4[1], 1);
+        Catalyst.main(args5);
+        fuel_kl(args5[1], 4);
+        Catalyst.main(args6);
+        fuel_kl(args6[1], 1);
+        Catalyst.main(args7);
+        fuel_not_kl(args7[1], 1);
+        fuel_kl(args7[1], 1);
+        Catalyst.main(args8);
+        engine_not_kl(args8[1], 2);
+        fuel_kl(args8[1], 2);
+
 
         System.out.println("Tests completed successfully!");
     }

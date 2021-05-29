@@ -1,6 +1,7 @@
 // FunctionMaps.java
 package catalyst;
 
+import java.lang.StackWalker.Option;
 import java.util.*;
 
 public class FunctionMaps {
@@ -8,10 +9,12 @@ public class FunctionMaps {
     private static class LivenessInfo {
         public Boolean Liveness;
         public StructMember[] Members;
+        public OptionalLong Parent;
 
         public LivenessInfo(StructMember[] members, Boolean liveness) {
             this.Liveness = liveness;
             this.Members = members;
+            this.Parent = OptionalLong.empty();
         }
     }
 
@@ -44,8 +47,14 @@ public class FunctionMaps {
         this.ObjCounter = Long.valueOf(0);
     }
 
-    public Long addObject(StructMember[] members, Boolean liveness) {
+    public Long addObject(StructMember[] members, Boolean liveness, Boolean isArg) {
         Objects.put(ObjCounter, new LivenessInfo(members, liveness));
+        for (StructMember m : members) {
+            if (m.Id.isPresent() && (m.Ownership.equals("Own") || isArg)) {
+                assert Objects.containsKey(m.Id.getAsLong()) : "Member not found";
+                Objects.get(m.Id.getAsLong()).Parent = OptionalLong.of(ObjCounter);
+            }
+        }
         ObjCounter++;
         return ObjCounter - 1;
     }
@@ -54,29 +63,14 @@ public class FunctionMaps {
         Variables.put(id, new Variable(objectId, info));
     }
 
-    public void killObj(Long objId) {
-        LivenessInfo obj = Objects.get(objId);
-        obj.Liveness = false;
-
-        // Kill members if necessary
-        for (Object m : obj.Members) {
-            StructMember mem = (StructMember)m;
-            if (mem.Ownership == "Own" && mem.Id.isPresent()) {
-                // If object owns member, set member liveness to false
-                killObj(mem.Id.getAsLong());
-            }
+    public void swapMembers(OptionalLong obj, StructMember[] newMembers) {
+        if (obj.isPresent() && Objects.containsKey(obj.getAsLong())) {
+            Objects.get(obj.getAsLong()).Members = newMembers;
         }
     }
 
     public void killRef(Long refId) {
         if (Variables.containsKey(refId)) {
-            Variable var = Variables.get(refId);
-
-            if (var.Info.Ownership.equals("Own") && var.ObjectId.isPresent()) {
-                // If variable owns object, kill object
-                killObj(var.ObjectId.getAsLong());
-            }
-
             Variables.remove(refId);
         }
     }
@@ -107,13 +101,25 @@ public class FunctionMaps {
         return OptionalLong.empty();
     }
 
+    public OptionalLong[] getMemberIds(OptionalLong parentId) {
+        if (parentId.isPresent() && Objects.containsKey(parentId.getAsLong())) {
+            LivenessInfo parent = Objects.get(parentId.getAsLong());
+            OptionalLong[] ids = new OptionalLong[parent.Members.length];
+            for (int i=0; i<parent.Members.length; i++) {
+                ids[i] = parent.Members[i].Id;
+            }
+            return ids;
+        }
+        return new OptionalLong[0];
+    }
+
     public void setMember(OptionalLong objId, Long memberIndex, OptionalLong newMember) {
         if (objId.isPresent() && Objects.containsKey(objId.getAsLong())) {
             LivenessInfo object = Objects.get(objId.getAsLong());
             if (object.Members.length > memberIndex) {
                 OptionalLong oldMember = object.Members[memberIndex.intValue()].Id;
                 if (oldMember.isPresent()) {
-                    killObj(oldMember.getAsLong());
+                    killObj(oldMember);
                 }
                 object.Members[memberIndex.intValue()].Id = newMember;
             } 
@@ -121,30 +127,133 @@ public class FunctionMaps {
     }
 
     public void setReturnInfo(OptionalLong objId, Long argId, Optional<String> structName, String ownership) {
-        int membersLen = 0;
-        StructMember[] members = null;
+        StructMember[] members = new StructMember[0];
+
+        PathToArg retObjAsArg = getPathToArg(objId);
+        HashMap<Long, MemberArgMap> memberMap = new HashMap<Long, MemberArgMap>();
 
         if (objId.isPresent()) {
             members = Objects.get(objId.getAsLong()).Members;
-            membersLen = members.length;
         }
 
-        OptionalLong[] membersAsArgs = new OptionalLong[membersLen];
+        //returned object placed in map first with key of -1
+        memberMap.put(Long.valueOf(-1), new MemberArgMap(members, this));
+        fillMemberMap(memberMap, members, argId);
 
-        for (int i=0; i<membersLen; i++) {
-            OptionalLong memberObj = members[i].Id;
-            membersAsArgs[i] = OptionalLong.empty();
+        Returns = new ReturnInfo(structName, ownership, retObjAsArg, memberMap);
+    }
 
-            for (int j=-1; j>argId; j--) {
-                OptionalLong argObj = getObject(Long.valueOf(j));
-                if (memberObj.isPresent() && argObj.isPresent() 
-                 && memberObj.getAsLong() == argObj.getAsLong()) {
-                    membersAsArgs[i] = OptionalLong.of((-1 * j) - 1);
+    private void fillMemberMap(HashMap<Long, MemberArgMap> memberMap, 
+                                StructMember[] members, Long argId) {
+        for (StructMember m : members) {
+            if (m.Id.isPresent()){
+                LivenessInfo memberInfo = Objects.get(m.Id.getAsLong());
+                StructMember[] memberMembers = memberInfo.Members;
+                memberMap.put(m.Id.getAsLong(), new MemberArgMap(memberMembers, this));
+                fillMemberMap(memberMap, memberMembers, argId);
+            }
+        }
+    }
+
+    // Inputs: ID of object that is no longer guaranteed to be alive
+    // Outputs: None
+    public void killObj(OptionalLong obj) {
+        if (obj.isPresent()) {
+            LivenessInfo objLivenessInfo = Objects.get(obj.getAsLong());
+            objLivenessInfo.Liveness = false;
+            // Any owned members are no longer knownLive
+            for (StructMember m : objLivenessInfo.Members) {
+                if (m.Id.isPresent() && m.Ownership.equals("Own")) {
+                    killObj(m.Id);
                 }
             }
         }
+    }
 
-        Returns = new ReturnInfo(structName, ownership, membersAsArgs);
+    public OptionalLong[] getArgObjs() {
+        // Create array with length of argument list
+        Long c = Long.valueOf(-1);
+        while(Variables.containsKey(c)) {
+            c--;
+        }
+        int size = -1 * (c.intValue() + 1);
+        OptionalLong[] argObjs = new OptionalLong[size];
+
+        // Get the object referenced by each argument
+        for (int i = 0; i < size; i++) {
+            Long idx = Long.valueOf(-1 * (i + 1));
+            OptionalLong obj = getObject(idx);
+
+            argObjs[i] = obj;
+        }
+
+        return argObjs;
+    }
+
+    public PathToArg getPathToArg(OptionalLong obj) {
+        OptionalLong[] argObjs = getArgObjs();
+        OptionalLong arg = OptionalLong.empty();
+        OptionalLong child = OptionalLong.empty();
+        OptionalLong curObj = obj;
+        ArrayList<Integer> path = new ArrayList<Integer>();
+
+        while (curObj.isPresent()) {
+            assert Objects.containsKey(curObj.getAsLong()) : "obj not found";
+            LivenessInfo curInfo = Objects.get(curObj.getAsLong());
+
+            // Update path 
+            if (child.isPresent()) {
+                for (int i = 0; i < curInfo.Members.length; i++) {
+                    if (child.equals(curInfo.Members[i].Id)) {
+                        // add index of child to path
+                        path.add(i);
+                        break;
+                    }
+                }
+            }
+            Long argIdx = Long.valueOf(0);
+            // Check if current object is argument
+            for (OptionalLong argObj : argObjs) {
+                if (argObj.isPresent() && argObj.equals(curObj)) {
+                    arg = OptionalLong.of(argIdx);
+                }
+                argIdx++;
+            }
+            
+            if (arg.isPresent()) break;
+
+            child = curObj;
+            curObj = curInfo.Parent;
+        }
+
+        Collections.reverse(path);
+
+        return new PathToArg(path, arg);
+    }
+
+    public void killVaryingMembers(OptionalLong obj) {
+        if (obj.isPresent()) {
+            LivenessInfo objLivenessInfo = Objects.get(obj.getAsLong());
+            int memCount = 0;
+            // Any varying members are no longer knownLive
+            for (StructMember m : objLivenessInfo.Members) {
+                if (m.Id.isPresent()) {
+                    if (m.Variability.equals("Varying")) {
+                        if (m.Ownership.equals("Own")) {
+                            killObj(m.Id);
+                            killVaryingMembers(m.Id);
+                        } else {
+                            // create new NOT knownlive object for varying borrow refs to point to
+                            LivenessInfo info = Objects.get(m.Id.getAsLong());
+                            Long newObj = addObject(info.Members, false, false);
+                            objLivenessInfo.Members[memCount] = new StructMember(OptionalLong.of(newObj), m.Ownership, m.Variability);
+                            killVaryingMembers(OptionalLong.of(newObj));
+                        }
+                    }
+                }
+                memCount++;
+            }
+        }
     }
 
     public void printMaps() {
