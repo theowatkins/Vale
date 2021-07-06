@@ -1,6 +1,26 @@
-fn main() {
-  arr = MakeArray(10, {_ * 7});
-  each (&arr) (x){
-    println(x);
+struct Engine {
+  fuel__ut int;
+}
+
+struct Spaceship {
+  engine1 Engine;
+  engine2 Engine;
+  wings int;
+}
+
+// test 9
+// returned expr in conditional
+
+fn pickEngine(s &Spaceship, eng int) &Engine {
+  if (eng == 1) {
+    ret s.engine1;
+  } else {
+    ret s.engine2;
   }
+}
+
+fn main() export {
+  s = Spaceship(Engine(10), Engine(20), 4);
+  e = pickEngine(&s, 1);
+  println(e.fuel__ut); // not knownLive
 }

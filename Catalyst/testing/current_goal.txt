@@ -1,3 +1,4 @@
- - Arrays
- - More thorough tests
- - Get test paths instead of hardcoding
+Need more tests of function parameter passsing
+ - variable owning reference as member to argument (not kl)
+ - owning ref passed to function and not returned (not kl)
+ - argument directly returned

@@ -159,7 +159,12 @@ public class Catalyst {
             if (getType(referend).equals("StructId")) {
                 structName = Optional.of((String)referend.get("name"));
             }
-            OptionalLong objId = createNotLiveObject(structName, fmaps);
+
+            OptionalLong objId = OptionalLong.empty();
+            if (ownership.equals("Own"))
+                objId = createLiveObject(structName, fmaps, true);
+            else 
+                objId = createNotLiveObject(structName, fmaps, true);
 
             // add unnamed variable with negative identifier for accessing newly created object
             fmaps.addVariable(argId, new Ref("", "Final", ownership, structName), objId);
@@ -178,7 +183,7 @@ public class Catalyst {
         // System.out.println("]");
     }
 
-    private static OptionalLong createNotLiveObject(Optional<String> structName, FunctionMaps fmaps) {
+    private static OptionalLong createLiveObject(Optional<String> structName, FunctionMaps fmaps, Boolean isArg) {
         if (!structName.isPresent()) {
             return OptionalLong.empty();
         }
@@ -187,11 +192,34 @@ public class Catalyst {
         StructMember[] members = new StructMember[memberInfo.length];
 
         for (int i=0; i<memberInfo.length; i++) {
-            members[i] = new StructMember(createNotLiveObject(memberInfo[i].StructName, fmaps), 
+            String ownership = memberInfo[i].Ownership;
+
+            if (ownership.equals("Own")) {
+                members[i] = new StructMember(createLiveObject(memberInfo[i].StructName, fmaps, isArg), 
+                    memberInfo[i].Ownership, memberInfo[i].Variability);
+            } else {
+                members[i] = new StructMember(createNotLiveObject(memberInfo[i].StructName, fmaps, isArg), 
+                    memberInfo[i].Ownership, memberInfo[i].Variability);
+            }
+        }
+
+        return OptionalLong.of(fmaps.addObject(members, true, isArg));
+    }
+
+    private static OptionalLong createNotLiveObject(Optional<String> structName, FunctionMaps fmaps, Boolean isArg) {
+        if (!structName.isPresent()) {
+            return OptionalLong.empty();
+        }
+
+        Ref[] memberInfo = getMemberInfo(structName);
+        StructMember[] members = new StructMember[memberInfo.length];
+
+        for (int i=0; i<memberInfo.length; i++) {
+            members[i] = new StructMember(createNotLiveObject(memberInfo[i].StructName, fmaps, isArg), 
                 memberInfo[i].Ownership, memberInfo[i].Variability);
         }
 
-        return OptionalLong.of(fmaps.addObject(members, false, true));
+        return OptionalLong.of(fmaps.addObject(members, false, isArg));
     }
 
     private static OptionalLong parseBlock(JSONObject block, FunctionMaps fmaps) {
@@ -333,6 +361,13 @@ public class Catalyst {
 
     private static OptionalLong parseCall(JSONObject obj, FunctionMaps fmaps) {
         JSONObject fun = (JSONObject)obj.get("function");
+        JSONObject protoRet = (JSONObject)fun.get("return");
+        Optional<String> retStructName = Optional.empty();
+        String retOwnership = "";
+        if (protoRet != null) {
+            retStructName = getStructName((JSONObject)protoRet.get("referend"));
+            retOwnership = getType((JSONObject)protoRet.get("ownership"));
+        }
         String fname = (String)fun.get("name");
         JSONArray params = (JSONArray)fun.get("params");
         JSONArray argExprs = (JSONArray)obj.get("argExprs");
@@ -367,9 +402,18 @@ public class Catalyst {
                 }
             }
         }
-    
-        if (retInfo.RetArgIdx.ArgIdx.isPresent()) {
-            assert retInfo.Ownership.equals("Borrow") : "weird: owning ref from arg returned";
+        
+        if (retInfo == null) {
+            if (!retStructName.isEmpty()) {
+                if (retOwnership.equals("Own"))
+                    return createLiveObject(retStructName, fmaps, false);
+                else 
+                    return createNotLiveObject(retStructName, fmaps, false);
+            } else {
+                return OptionalLong.empty();
+            }
+        }
+        else if (retInfo.RetArgIdx.ArgIdx.isPresent()) {
             // returned object is tied to argument
             OptionalLong argObj = argEvals[(int)retInfo.RetArgIdx.ArgIdx.getAsLong()];
             OptionalLong retObj = getObjFromPath(argObj, retInfo.RetArgIdx, fmaps);
@@ -378,8 +422,10 @@ public class Catalyst {
             // Build members of returned object 
             if (retInfo.StructName.isPresent() && 
               structInfo.get(retInfo.StructName.get()).Members.length > retInfo.MemberMap.get(Long.valueOf(-1)).members.length) {
-                // Create dummy member objects for members to point to
-                return createNotLiveObject(retInfo.StructName, fmaps);
+                if (retOwnership.equals("Own"))
+                    return createLiveObject(retStructName, fmaps, false);
+                else 
+                    return createNotLiveObject(retStructName, fmaps, false);
             }
 
             StructMember[] members = buildReturnMembers(Long.valueOf(-1), retInfo.MemberMap, argEvals, fmaps, retInfo.Ownership);

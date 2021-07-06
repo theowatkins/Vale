@@ -139,6 +139,9 @@ public class TestCatalyst {
         String[] args8 = {
             "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test8\\out\\build.vast", 
             "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test8\\out\\speedy-build.vast" };
+        String[] args9 = {
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test9\\out\\build.vast", 
+            "C:\\Users\\theow\\Desktop\\Thesis\\Catalyst\\testing\\test9\\out\\speedy-build.vast" };
             
         Catalyst.main(args1);
         fuel_kl(args1[1], 1);
@@ -159,6 +162,8 @@ public class TestCatalyst {
         Catalyst.main(args8);
         engine_not_kl(args8[1], 2);
         fuel_kl(args8[1], 2);
+        Catalyst.main(args9);
+        fuel_not_kl(args9[1], 1);
 
 
         System.out.println("Tests completed successfully!");
